@@ -5,28 +5,22 @@ import com.study.springcloud.entities.Paymet;
 import com.study.springcloud.service.PaymentService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cloud.client.ServiceInstance;
-import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
-import java.util.List;
 
 /**
  * @author Yang Lei
  * @version 1.0
- * @date 2020/9/28 20:25
- * @RequestBody：主要用来接收前端传递给后端的json字符串中的数据的
+ * @date 2020/10/9 11:46
+ * @description
  */
 @Controller
 @Slf4j
-public class PaymentController {
+public class PaymenyController {
     @Resource
     private PaymentService paymentService;
-
-    @Resource
-    private DiscoveryClient discoveryClient;
 
     @Value("${server.port}")
     private String serverPort;
@@ -54,27 +48,4 @@ public class PaymentController {
             return new CommonResult(444,"查询失败",null);
         }
     }
-
-    /**
-     * 查询本微服务的相关信息
-     * @return
-     */
-    @GetMapping(value = "/payment/discovery")
-    @ResponseBody
-    public Object discovery(){
-        //发现服务 cloud-payment-service cloud-oreder-service
-        List<String> services = discoveryClient.getServices();
-        for(String element: services){
-            log.info("*****element:"+element);
-        }
-
-        //获取一个Instances下相关的信息
-        List<ServiceInstance> instances = discoveryClient.getInstances("CLOUD-PAYMENT-SERVICE");
-        for (ServiceInstance instance : instances){
-            log.info(instance.getServiceId()+"\t"+ instance.getHost()+ "\t" + instance.getPort() + "\t"+instance.getUri());
-        }
-
-        return this.discoveryClient;
-    }
-
 }

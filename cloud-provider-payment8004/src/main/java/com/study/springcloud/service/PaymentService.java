@@ -1,17 +1,15 @@
-package com.study.springcloud.dao;
+package com.study.springcloud.service;
 
 import com.study.springcloud.entities.Paymet;
-import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import org.springframework.stereotype.Component;
 
 /**
  * @author Yang Lei
  * @version 1.0
- * @date 2020/9/28 20:00
+ * @date 2020/10/9 11:44
+ * @description
  */
-@Mapper
-public interface PaymentDao {
+public interface PaymentService {
     public int create(Paymet paymet);
 
     public Paymet getPaymentById(@Param("id") Long id);

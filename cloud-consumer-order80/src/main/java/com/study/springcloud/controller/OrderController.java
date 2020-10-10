@@ -17,8 +17,8 @@ import javax.annotation.Resource;
  */
 @RestController
 public class OrderController {
-    public static final String PAYMENT_URL = "http://localhost:8001/";
-
+    //public static final String PAYMENT_URL = "http://localhost:8001/";
+    public static final String PAYMENT_URL = "http://CLOUD-PAYMENT-SERVICE"; //获取集群中名为CLOUD-PAYMENT-SERVICE的服务
     @Resource
     private RestTemplate restTemplate;
 

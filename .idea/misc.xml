@@ -10,6 +10,10 @@
     <option name="ignoredFiles">
       <set>
         <option value="$PROJECT_DIR$/cloud-consumer-order/pom.xml" />
+        <option value="$PROJECT_DIR$/cloud-eurka-service7002/pom.xml" />
+        <option value="$PROJECT_DIR$/cloud-provider-payment8002-2/pom.xml" />
+        <option value="$PROJECT_DIR$/cloud-provider-payment8002/pom.xml" />
+        <option value="$PROJECT_DIR$/cloud-provider-payment8003/pom.xml" />
       </set>
     </option>
   </component>
