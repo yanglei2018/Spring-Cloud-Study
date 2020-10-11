@@ -149,3 +149,123 @@ public class PaymentMain8001 {
 }
 ```
 
+
+
+## Eureka自我保护机制
+
+在某时刻某个服务不可用了，Eureka不会立即清理，依旧会对该服务的信息进行保存。
+
+属于CAP中的AP
+
+
+
+
+
+# zookeeper
+
+服务注册进zookeeper
+
+pom.xml
+
+```xml
+<!--SpringBoot整合Zookeeper客户端-->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-zookeeper-discovery</artifactId>
+    <exclusions>
+        <!--先排除自带的zookeeper3.5.3-->
+        <exclusion>
+            <groupId>org.apache.zookeeper</groupId>
+            <artifactId>zookeeper</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<!--添加zookeeper3.4.14版本-->
+<dependency>
+    <groupId>org.apache.zookeeper</groupId>
+    <artifactId>zookeeper</artifactId>
+    <version>3.4.9</version>
+</dependency>
+```
+
+application.yml
+
+```yml
+server:
+  port: 8004
+
+
+#服务别名 --- 注册zookeeper到注册中心名称
+spring:
+  application:
+    name: cloud-provider-payment
+  cloud:
+    zookeeper:
+      connect-string: 47.96.27.160:2181
+```
+
+controller层
+
+```java
+@RestController
+@Slf4j
+public class PaymentController {
+    @Value("${server.port}")
+    private String serverPort;
+
+    @RequestMapping(value = "/payment/zk")
+    public String payment_zk(){
+        return "springcloud with zookeeper:" + serverPort + "\t" + UUID.randomUUID().toString();
+    }
+}
+```
+
+主启动类
+
+```java
+@SpringBootApplication
+@EnableDiscoveryClient
+public class PaymentMain8006 {
+    public static void main(String[] args) {
+        SpringApplication.run(PaymentMain8006.class, args);
+    }
+}
+```
+
+
+
+Docker中安装zookeeper
+
+1. 拉取：docker pull zookeeper:3.4.9
+2. 运行：docker run --privileged=true -d --name zookeeper3 --publish 2181:2181  -d zookeeper:3.4.9
+
+
+
+查看服务：
+
+~~~java
+//首先找到正在运行的容器di
+docker ps
+
+//然后执行如下操作
+docker exec -it add905a36402（this is id） bash
+
+cd bin
+
+./zkCli.sh
+
+ls /services
+//参考：https://blog.csdn.net/qq_43357627/article/details/108816396
+~~~
+
+查看信息
+
+get /services/cloud-provider-payment/db498dc4-d6b8-40a5-916f-b4010671d5fe
+
+~~~jso
+{"name":"cloud-provider-payment","id":"db498dc4-d6b8-40a5-916f-b4010671d5fe","address":"DESKTOP-O35174P","port":8004,"sslPort":null,"payload":{"@class":"org.
+springframework.cloud.zookeeper.discovery.ZookeeperInstance","id":"application-1","name":"cloud-provider-payment","metadata":{}},"registrationTimeUTC":160238
+4139101,"serviceType":"DYNAMIC","uriSpec":{"parts":[{"value":"scheme","variable":true},{"value":"://","variable":false},{"value":"address","variable":true},{
+"value":":","variable":false},{"value":"port","variable":true}]}}
+~~~
+
