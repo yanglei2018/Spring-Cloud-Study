@@ -1,11 +1,10 @@
 server:
-  port: 8006
-
+  port: 80
 
 #服务别名 --- 注册zookeeper到注册中心名称
 spring:
   application:
-    name: cloud-provider-payment
+    name: cloud-consumer-order
   cloud:
     zookeeper:
       connect-string: 47.96.27.160:2181

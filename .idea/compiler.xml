@@ -14,8 +14,11 @@
         <module name="cloud-consumer-order" />
         <module name="cloud-provider-payment8001" />
         <module name="cloud-consumer-order80" />
+        <module name="cloud-provider-payment8007" />
         <module name="cloud-provider-payment8006" />
         <module name="cloud-eurka-service7002" />
+        <module name="cloud-consumerzk-order80" />
+        <module name="cloud-consumerconsul-order80" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
