@@ -1,0 +1,13 @@
+server:
+  port: 80
+
+eureka:
+  client:
+    register-with-eureka: true
+    service-url:
+      defaultZone: http://eureka7002.com:7002/eureka/,http://eureka7001.com:7001/eureka/
+
+logging:
+  level:
+    #feign日志以什么级别健康哪个接口
+    com.study.springcloud.service.PaymentFeignService: debug

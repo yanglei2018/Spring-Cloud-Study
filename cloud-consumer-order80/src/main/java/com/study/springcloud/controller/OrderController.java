@@ -54,7 +54,7 @@ public class OrderController {
         }
     }
 
-    //自己的轮询规则
+    //调用自己的轮询规则
     @GetMapping(value = "/consumer/payment/lb")
     public String getPaymentLB(){
         //获取一个Instances下相关的信息

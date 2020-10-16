@@ -1,3 +1,5 @@
+# 1. Eureka
+
 ## EurekaService服务端安装
 
 ### pom.xml依赖
@@ -161,7 +163,7 @@ public class PaymentMain8001 {
 
 
 
-# zookeeper
+# 2. zookeeper
 
 ## 服务注册进zookeeper
 
@@ -312,7 +314,7 @@ public class OrderZKController {
 
 
 
-# consul
+# 3. consul
 
 **下载**
 
@@ -398,7 +400,7 @@ CAP理论的核心是：一个分布式系统不可能同时很好的满足一�
 
 
 
-# Ribbon
+# 4. Ribbon
 
 ## 基本概念
 
@@ -504,3 +506,180 @@ public class OrderMain80 {
 ## 默认负载轮询算法原理
 
 **负载均衡算法：**rest接口第几次请求数%服务器集群总数量=实际调用服务器位置下标，每次服务重启动后rest接口计数从1开始.
+
+## 手写轮询算法
+
+1. ApplicationContextConfig去掉@LoadBalanced
+
+2. 8001服务
+
+```Java
+@GetMapping(value = "/payment/lb")
+@ResponseBody
+public String getPaymentLB(){
+    return serverPort;
+}
+```
+
+3. 实现类
+
+接口
+
+```java
+public interface LoadBalancer {
+    //获取机器总数
+    ServiceInstance instance(List<ServiceInstance> serviceInstances);
+}
+```
+
+实现类
+
+```Java
+@Component
+public class MyLB implements LoadBalancer{
+
+    private AtomicInteger atomicInteger = new AtomicInteger(0);//原子操作类
+
+    public final int getAndIncrement(){
+        int current;
+        int next;
+        do{
+            current = this.atomicInteger.get();
+            next = current >= 2147483647 ? 0 : current + 1; //判断是否达到最大
+        }while (!this.atomicInteger.compareAndSet(current, next));//当目前的值和下一个值不相等，那么自询
+        System.out.println("*****next:" +next);
+        return next;
+    }
+    @Override
+    public ServiceInstance instance(List<ServiceInstance> serviceInstances) {
+        int index = getAndIncrement() % serviceInstances.size(); //负载均衡算法
+        return serviceInstances.get(index);//返回访问的主机序号
+    }
+}
+```
+
+4. 80服务调用
+
+```Java
+//自己的轮询规则
+@GetMapping(value = "/consumer/payment/lb")
+public String getPaymentLB(){
+    //获取一个Instances下相关的信息
+    List<ServiceInstance> instances = discoveryClient.getInstances("CLOUD-PAYMENT-SERVICE");
+    if(instances == null || instances.size() <=0){ //w无效的实例
+        return null;
+    }
+    ServiceInstance instance = loadBalancer.instance(instances);//将instances传入到自己的规则中
+    URI uri = instance.getUri();
+
+    return restTemplate.getForObject(uri + "/payment/lb", String.class);
+}
+```
+
+# 5. OpenFeign
+
+## 概述
+
+Feign是一个声明式WebService**客户端**。使用Feign能让编写Web Service客户端更加简单。 
+
+**它的使用方法是定义一个服务接口然后在上面添加注解。**Feign也支持可拔插式的编码器和解码器。Spring Cloud对Feign进行了封装，使其支持了Spring MVC标准注解和HttpMessageConverters。Feign可以与Eureka和Ribbon组合使用以支持负载均衡
+
+**Feign能干什么**
+**Feign旨在使编写Java Http客户端变得更容易。**
+前面在使用Rjbbon+RestTemplate时，利用RestTemplate对http请求的封装处理，形成了一套模版化的调用方法。但是在实际开发中，由于对服务依赖的调用可能不止一处，**往往一个接口会被多处调用**，**所以通常都会针对每个微服务自行封装一些客户端类来包装这些依赖服务的调用。**所以，Feign在此基础上做了进一步封装，由他来帮助我们定义和实现依赖服务接口的定义。在Feign的实现下，**我们只需创建一个接口并使用注解的方式来配置它(以前是Dao接口上面标注Mapper注解,现在是一个微服务接口上面标注一个Feign注解即可)，**即可完成对服务提供方的接口绑定，简化了使用Spring cloud Ribbon时，自动封装服务调用客户端的开发量。
+
+**Feign集成了Ribbon**
+利用Ribbon维护了Payment的服务列表信息，并且通过轮询实现了客户端的负载均衡。而与Ribbon不同的是，通过feign只需要定义
+服务绑定接口且以声明式的方法，优雅而简单的实现了服务调用
+
+## 服务调用
+
+**业务类**
+
+业务逻辑接口+@FeignClient配置调用provider服务
+
+新建PaymentFeignService接口并新增注解@FeignClient
+
+```Java
+@Component
+@FeignClient(value = "CLOUD-PAYMENT-SERVICE")
+public interface PaymentFeignService {
+    @GetMapping(value = "/payment/get/{id}")
+    public CommonResult<Paymet> getPaymentById(@PathVariable("id") Long id);//这个服务必须是8001所包含的接口
+}
+```
+
+**控制层**
+
+```Java
+@RestController
+@Slf4j
+public class OrderFeignController {
+    @Resource
+    private PaymentFeignService paymentFeignService;
+
+    @GetMapping(value = "/consumer/payment/get/{id}")
+    public CommonResult<Paymet> getPaymentById(@PathVariable("id") Long id){
+        return paymentFeignService.getPaymentById(id);
+    }
+}
+```
+
+pom.xml
+
+```xml
+<!-- openfeign -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-openfeign</artifactId>
+</dependency>
+```
+
+application.yml
+
+```
+server:
+  port: 80
+
+eureka:
+  client:
+    register-with-eureka: true
+    service-url:
+      defaultZone: http://eureka7002.com:7002/eureka/,http://eureka7001.com:7001/eureka/
+```
+
+## 日志增强
+
+**配置类**
+
+```Java
+@Configuration
+public class FeignConfig {
+    @Bean
+    Logger.Level feignLoggerLevel(){
+        return Logger.Level.FULL;
+    }
+}
+```
+
+**yml**
+
+```yaml
+logging:
+  level:
+    #feign日志以什么级别健康哪个接口
+    com.study.springcloud.service.PaymentFeignService: debug
+```
+
+**效果**
+
+DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] <--- HTTP/1.1 200 (420ms)
+2020-10-16 15:22:00.611 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] connection: keep-alive
+2020-10-16 15:22:00.611 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] content-type: application/json
+2020-10-16 15:22:00.611 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] date: Fri, 16 Oct 2020 07:22:00 GMT
+2020-10-16 15:22:00.611 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] keep-alive: timeout=60
+2020-10-16 15:22:00.611 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] transfer-encoding: chunked
+2020-10-16 15:22:00.611 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] 
+2020-10-16 15:22:00.614 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] {"code":200,"message":"查询成功,serverPort:8001","data":{"id":1,"serial":"22"}}
+2020-10-16 15:22:00.614 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] <--- END HTTP (83-byte body)
+2020-10-16 15:22:01.472  INFO 6376 --- [erListUpdater-0] c.netflix.config.ChainedDynamicProperty  : Flipping property: CLOUD-PAYMENT-SERVICE.ribbon.ActiveConnectionsLimit to use NEXT property: niws.loadbalancer.availabilityFilteringRule.activeConnectionsLimit = 2147483647
