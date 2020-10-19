@@ -683,3 +683,322 @@ DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [Pay
 2020-10-16 15:22:00.614 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] {"code":200,"message":"查询成功,serverPort:8001","data":{"id":1,"serial":"22"}}
 2020-10-16 15:22:00.614 DEBUG 6376 --- [p-nio-80-exec-1] c.s.s.service.PaymentFeignService        : [PaymentFeignService#getPaymentById] <--- END HTTP (83-byte body)
 2020-10-16 15:22:01.472  INFO 6376 --- [erListUpdater-0] c.netflix.config.ChainedDynamicProperty  : Flipping property: CLOUD-PAYMENT-SERVICE.ribbon.ActiveConnectionsLimit to use NEXT property: niws.loadbalancer.availabilityFilteringRule.activeConnectionsLimit = 2147483647
+
+# 6. Hystrix
+
+## 概述
+
+Hystrix是一个用于处理分布式系统的**延迟和容错**的开源库，在分布式系统里，许多依赖不可避免的会调用失败，比如超时、异常等，
+Hystrix能够保证在一个依赖出问题的情况下，**不会导致整体服务失败，避免级联故障，以提高分布式系统的弹性**。
+
+"断路器”本身是一种开关装置，当某个服务单元发生故障之后，通过断路器的故障监控〔类似熔断保险丝)，**向调用方返回一个符合**
+**预期的、可处理的备选响应(FallBack)，而不是长时间的等待或者抛出调用方无法处理的异常**，这样就保证了服务调用方的线程不会
+被长时间、不必要地占用，从而避免了故障在分布式系统中的蔓延，乃至雪崩。
+
+**服务降级：**不让客户端等待并立刻返回一个友好提示
+
+**服务熔断：**达到最大服务访问后，直接拒绝访问，然后调用服务降级的方法返回提示
+
+**服务限流：**秒杀高并发操作，严禁一窝蜂的拥挤，一秒钟N个，有序进行
+
+## Hystrix支付微服务构建
+
+pom.xml
+
+```xml
+<!-- hystrix-->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+</dependency>
+```
+
+application.yml
+
+```yml
+server:
+  port: 8001
+
+spring:
+  application:
+    name: cloud-provider-hystrix-payment
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://eureka7001.com:7001/eureka/
+```
+
+主启动类
+
+```Java
+@SpringBootApplication
+@EnableEurekaClient
+public class PaymentHystrixMain8001 {
+    public static void main(String[] args) {
+        SpringApplication.run(PaymentHystrixMain8001.class, args);
+    }
+}
+```
+
+服务层
+
+```Java
+@Service
+public class PaymentService {
+    //不会出异常的程序
+    public String paymentInfo_OK(Integer id){
+        return "线程池：" + Thread.currentThread().getName() + "paymentInfo_OK, id:" + id;
+    }
+    //会出异常的程序
+    public String paymentInfo_TimeOut(Integer id){
+        int timeNumber = 3;
+        try {
+            TimeUnit.SECONDS.sleep(timeNumber);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return "线程池：" + Thread.currentThread().getName() + "paymentInfo_TimeOut, id:" + id + "耗时：" + timeNumber;
+    }
+}
+```
+
+控制层
+
+```Java
+@RestController
+@Slf4j
+public class PaymentController {
+    @Resource
+    PaymentService paymentService;
+
+    @Value("$(server.port)")
+    private String serverPort;
+
+    @GetMapping(value = "/payment/hystrix/ok/{id}")
+    public String paymentInfo_OK(@PathVariable("id") Integer id){
+        String info_ok = paymentService.paymentInfo_OK(id);
+        log.info("****result:" + info_ok);
+        return info_ok;
+    }
+    @GetMapping(value = "/payment/hystrix/timeout/{id}")
+    public String paymentInfo_TimeOut(@PathVariable("id") Integer id){
+        String info_ok = paymentService.paymentInfo_TimeOut(id);
+        log.info("****result:" + info_ok);
+        return info_ok;
+    }
+}
+```
+
+
+
+## 服务降级
+
+在提供服务的方法中，添加**@HystrixCommand注解**
+
+```Java
+@HystrixCommand(fallbackMethod = "paymentInfo_TimeOutHandler",commandProperties = {
+        @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "3000")
+})//服务降级到指定方法
+```
+
+添加保底方法
+
+```Java
+public String paymentInfo_TimeOutHandler(Integer id){
+    return "线程池：" + Thread.currentThread().getName() + "paymentInfo_TimeOut, id:" + id + "出错";
+}
+```
+
+主函数中添加**@EnableCircuitBreaker注解**
+
+## 全局服务降级方法
+
+1. 在整个Controller类上添加@DefaultProperties注解
+
+```Java
+@DefaultProperties(defaultFallback = "payment_Global_FallBackMethod")
+```
+
+2. 在需要降级的方法上添加@HystrixCommand注解
+
+3. 添加全局保底方法
+
+```java
+public String payment_Global_FallBackMethod(){
+    return "全局FallBack方法";
+}
+```
+
+## 通配服务降级FeignFallBack
+
+1. Feign调用的接口：**需要添加fallback属性**
+
+```Java
+@Component
+@FeignClient(value = "CLOUD-PROVIDER-HYSTRIX-PAYMENT", fallback = PaymentHystrixFallback.class)
+public interface PaymentHystrixService {
+    @GetMapping(value = "/payment/hystrix/ok/{id}")
+    public String paymentInfo_OK(@PathVariable("id") Integer id);
+
+    @GetMapping(value = "/payment/hystrix/timeout/{id}")
+    public String paymentInfo_TimeOut(@PathVariable("id") Integer id);
+}
+```
+
+2. 实现该接口（重新方法）
+
+```java
+@Component
+public class PaymentHystrixFallback implements PaymentHystrixService{
+    @Override
+    public String paymentInfo_OK(Integer id) {
+        return "paymentInfo_OK 服务降级方法";
+    }
+
+    @Override
+    public String paymentInfo_TimeOut(Integer id) {
+        return "paymentInfo_TimeOut 服务降级方法";
+    }
+}
+```
+
+**熔断机制概述**
+熔断机制是应对雪崩效应的一种微服务链路保护机制。当扇出链路的某个微服务出错不可用或者响应时间太长时，
+会进行服务的降级，进而熔断该节点微服务的调用，快速返回错误的响应信息。
+**当检测到该节点微服务调用响应正常后，恢复调用链路。**
+
+在Spring Cloud框架里，熔断机制通过Hystrix实现。Hystrix会监控微服务间调用的状况，
+当失败的调用到一定阈值，缺省是5秒内20次调用失败，就会启动熔断机制。熔断机制的注解是@HystrixCommand。
+
+案例：
+
+**服务层**
+
+```java
+//****服务熔断****
+@HystrixCommand(fallbackMethod = "paymentCircuitBreaker_fallback",commandProperties = {
+        @HystrixProperty(name = "circuitBreaker.enabled", value = "true"),              //是否开启断路器
+        @HystrixProperty(name = "circuitBreaker.requestVolumeThreshold", value = "10"),    //请求数达到后才计算
+        @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds", value = "10000"), //休眠时间窗
+        @HystrixProperty(name = "circuitBreaker.errorThresholdPercentage", value = "60"),  //错误率达到多少跳闸
+})
+public String paymentCircuitBreaker(@PathVariable("id") Integer id){
+    if(id < 0){
+        throw new RuntimeException("id不能为负数");
+    }
+    String serialNumber = IdUtil.simpleUUID();
+
+    return Thread.currentThread().getName() + "\t" + "调用成功，流水号：" + serialNumber;
+}
+public String paymentCircuitBreaker_fallback(@PathVariable("id") Integer id){
+    return "id不能为负数，请重试";
+}
+```
+
+**业务层**
+
+```java
+//===服务熔断
+@GetMapping(value = "/payment/circuit/{id}")
+public String paymentCircuitBreaker(@PathVariable("id") Integer id){
+    String result = paymentService.paymentCircuitBreaker(id);
+    log.info("info:" + result);
+    return result;
+}
+```
+
+## Hystrix图形化监控
+
+**1.新建一个Module**
+
+application.yml
+
+```yml
+server:
+  port: 9001
+```
+
+依赖
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-hystrix-dashboard</artifactId>
+</dependency>
+```
+
+主启动类
+
+```Java
+@SpringBootApplication
+@EnableHystrixDashboard //开启Hystrix图形化界面
+public class HystrixDashboard9001 {
+    public static void main(String[] args) {
+        SpringApplication.run(HystrixDashboard9001.class, args);
+    }
+}
+```
+
+2. 被监控的服务
+
+依赖
+
+```xml
+<!--监控-->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+主启动类
+
+```Java
+@SpringBootApplication
+@EnableEurekaClient
+@EnableCircuitBreaker
+public class PaymentHystrixMain8001 {
+    public static void main(String[] args) {
+        SpringApplication.run(PaymentHystrixMain8001.class, args);
+    }
+    /**
+     * 此配置是为了服务监控而配置，与服务容错本身无关，springcloud升级后的坑
+     * ServletRegistrationBean因为SpringBoot的默认路径不是 “/hystrix.stream"
+     * 只要在自己的项目里配置上下的servlet就可以了
+     */
+    @Bean
+    public ServletRegistrationBean getServlet() {
+        HystrixMetricsStreamServlet streamServlet = new HystrixMetricsStreamServlet() ;
+        ServletRegistrationBean registrationBean = new ServletRegistrationBean(streamServlet);
+        registrationBean.setLoadOnStartup(1);
+        registrationBean.addUrlMappings("/hystrix.stream");
+        registrationBean.setName("HystrixMetricsStreamServlet");
+        return  registrationBean;
+    }
+}
+```
+
+3. 测试地址
+
+图形化地址：http://localhost:9001/hystrix
+
+待测地址：http://localhost:8001/hystrix.stream
+
+
+
+# 7. GateWay
+
+Gateway是在Spring生态系统之上构建的API网关服务，基于Spring 5，Spring Boot.2和Project Reactor等技术。
+Gateway旨在提供一种简单而有效的方式来对API进行路由，以及提供一些强大的过滤器功能，例如:熔断、限流、重试等
+
+**SpringCloud Gateway使用的Webflux中的reactor-netty响应式编程组件，底层使用了Netty通讯框架。**
+
+**路由：**路由是构建网关的基本模块，它由ID，目标URI，一系列的断言和过滤器组成，如果断言为true则匹配该路由；
+
+**断言：**参考的是Java8的java.util.function.Predicate
+开发人员可以匹配HTTP请求中的所有内容(例如请求头或请求参数)，如果请求与断言相匹配则进行路由
+
+**过滤：**指的是Spring框架中GatewayFilter的实例，使用过滤器，可以在请求被路由前或者之后对请求进行修改。

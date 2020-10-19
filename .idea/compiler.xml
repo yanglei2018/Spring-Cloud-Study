@@ -10,14 +10,18 @@
         <module name="cloud-provider-payment8004" />
         <module name="cloud-api-commons" />
         <module name="cloud-provider-payment8001" />
+        <module name="cloud-consumer-feign-hystrix-order80" />
         <module name="cloud-eurka-service7002" />
         <module name="cloud-consumerzk-order80" />
         <module name="cloud-consumerconsul-order80" />
+        <module name="cloud-consumer-hystrix-dashboard9001" />
         <module name="cloud-eureka-service7001" />
         <module name="cloud-eureka-service7002" />
+        <module name="cloud-gateway-gateway9527" />
         <module name="cloud-consumer-order" />
         <module name="cloud-consumer-order80" />
         <module name="cloud-provider-payment8007" />
+        <module name="cloud-provider-hystrix-payment8001" />
         <module name="cloud-provider-payment8006" />
         <module name="cloud-consumer-feign-order80" />
       </profile>
