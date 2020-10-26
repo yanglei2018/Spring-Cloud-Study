@@ -1002,3 +1002,486 @@ Gateway旨在提供一种简单而有效的方式来对API进行路由，以及�
 开发人员可以匹配HTTP请求中的所有内容(例如请求头或请求参数)，如果请求与断言相匹配则进行路由
 
 **过滤：**指的是Spring框架中GatewayFilter的实例，使用过滤器，可以在请求被路由前或者之后对请求进行修改。
+
+
+
+## GateWay9527搭建
+
+依赖：
+
+```xml
+<!--gateway-->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-gateway</artifactId>
+</dependency>
+```
+
+配置：
+
+```yml
+server:
+  port: 9527
+
+spring:
+  application:
+    name: cloud-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 开启从注册中心动态创建路由的功能，利用微服务名称进行路由
+      routes:
+        - id: payment_route # 路由的id,没有规定规则但要求唯一,建议配合服务名
+          #匹配后提供服务的路由地址
+          #uri: http://localhost:8001
+          uri: lb://cloud-payment-service
+          predicates:
+            - Path=/payment/get/** # 断言，路径相匹配的进行路由
+
+        - id: payment_route2
+          #uri: http://localhost:8001
+          uri: lb://cloud-payment-service
+          predicates:
+            - Path=/payment/lb/** #断言,路径相匹配的进行路由
+            - After=2020-03-12T15:44:15.064+08:00[Asia/Shanghai]
+          #- Cookie=username,eiletxie   #带Cookie，并且username的值为eiletxie
+          #- Header=X-Request-Id,\d+ #请求头要有 X-Request-Id属性并且值为整数的正则表达式
+
+eureka:
+  instance:
+    hostname: cloud-gateway-service
+  client:
+    fetch-registry: true
+    register-with-eureka: true
+    service-url:
+      defaultZone: http://eureka7001.com:7001/eureka/
+```
+
+主启动类
+
+```java
+@SpringBootApplication
+@EnableEurekaClient
+public class GatewayMain9527 {
+    public static void main(String[] args) {
+        SpringApplication.run(GatewayMain9527.class, args);
+    }
+}
+```
+
+代码配置网关方式
+
+```java
+@Configuration
+public class MyGateWayConfig {
+    @Bean
+    public RouteLocator customRouteLocator(RouteLocatorBuilder builder){
+        RouteLocatorBuilder.Builder routes = builder.routes();
+        routes.route("mypath",r->r.path("/guonei").uri("http://news.baidu.com/guonei")).build();
+
+        return routes.build();
+    }
+}
+```
+
+# 8. Config
+
+## 概述
+
+SpringCloud Config为微服务架构中的微服务提供集中化的外部配置支持，配置服务器为各个不同微服务应用的所有环境提供了一个中心化的外部配置。
+
+**服务端**也称为分布式配置中心，**它是一个独立的微服务应用，用来连接配置服务器并为客户端提供获取配置信息，加密/解密信息等访问接口**
+**客户端**则是通过指定的配置中心来管理应用资源，以及与业务相关的配置内容，并**在启动的时候从配置中心获取和加载配置信息**配置服务器默认采用git来存储配置信息，这样就有助于对环境配置进行版本管理，并且可以通过git客户端工具来方便的管理和访问配置内容
+
+**服务器端**
+
+配置：
+
+```yaml
+spring:
+  application:
+    name: cloud-config-center
+  cloud:
+    config:
+      server:
+        git:
+          #uri: git@github.com:EiletXie/config-repo.git #Github上的git仓库名字
+          uri: https://github.com/yanglei2018/springcloud-config.git
+          ##搜索目录.这个目录指的是github上的目录
+          search-paths:
+            - config-repo
+      ##读取分支
+      label: master
+```
+
+依赖
+
+```xml
+<!--config server-->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-config-server</artifactId>
+</dependency>
+```
+
+**客户端**
+
+依赖
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-config</artifactId>
+</dependency>
+```
+
+配置
+
+bootstrap.yml
+
+```yaml
+server:
+  port: 3355
+
+spring:
+  application:
+    name: config-client
+  cloud:
+    #Config客户端配置
+    config:
+      label: master #分支名称
+      name: config #配置文件名称
+      profile: dev #读取后缀名称 上诉3个综合就是 master分支上 config-dev.yml
+      uri: http://config-3344.com:3344/
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka7001.com:7001/eureka/
+```
+
+业务类
+
+```java
+@RestController
+@RefreshScope //刷新配置
+public class ConfigClientController {
+    // 因为config仓库以rest形式暴露，所以所有客户端都可以通过config服务端访问到github上对应的文件信息
+    @Value("${config.info}")
+    private String configInfo;
+
+    @Value("${server.port}")
+    private String serverPort;
+
+    @GetMapping("/configInfo")
+    public String getConfigInfo() {
+        return "serverPort: " + serverPort + "\t\n\n configInfo:" + configInfo;
+    }
+}
+```
+
+存在的问题：客户端不能动态的刷新GitHub上更新的配置，需要重新启动服务后才能获取到最新的配置。
+
+需要修改的配置：
+
+bootstrap.yml
+
+```yaml
+#暴露监控端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+```
+
+业务类需要增加的注解：**@RefreshScope**
+
+最后，需要手动运行命令：curl -X POST "http:localhost:3355/actuator/refresh"
+
+# 9. Bus消息总线
+
+## 概述
+
+**什么是总线**
+在微服务架构的系统中，通常会使用**轻量级的消息代理来构建一个共用的消息主题**，并让系统中所有微服务实例都连接上来。由于**该主题中产生的消息会被所有实例监听和消费**，所以称它为消息总线。在总线上的各个实例，都可以方便地广播一些需要让其他连接在该主题上的实例都知道的消息。
+**基本原理**
+ConfigClient实例都监听MQ中同一个topic(默认是springCloudBus)。当一个服务刷新数据的时候，它会把这个信息放入到Topic中，这样其它监听同—Topic的服务就能得到通知，然后去更新自身的配置。
+
+## **一次配置，处处生效**
+
+**1. 服务端：**
+
+依赖
+
+```xml
+<!-- 添加消息总线RabbitMQ支持 -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+</dependency>
+```
+
+配置
+
+```yaml
+#rabbit相关配置 15672是web管理界面的端口，5672是MQ访问的端口
+rabbitmq:
+  host: 47.96.27.160
+  port: 5672
+  username: guest
+  password: guest
+  
+#rabbitmq相关设置 ，暴露 bus刷新配置的端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: 'bus-refresh'
+```
+
+**2. 客户端:**
+
+依赖
+
+~~~xml
+<!-- 添加消息总线RabbitMQ支持 -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+</dependency>
+~~~
+
+配置：
+
+~~~yaml
+#rabbit相关配置 15672是web管理界面的端口，5672是MQ访问的端口
+rabbitmq:
+  host: 47.96.27.160
+  port: 5672
+  username: guest
+  password: guest
+  
+#rabbitmq相关设置 ，暴露 bus刷新配置的端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+~~~
+
+**3. 执行的命令**
+
+curl -X POST "http:localhost:3355/actuator/bus-refresh"
+
+# 10. Steam
+
+## 生产者
+
+依赖
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <!--监控-->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <!--eureka client-->
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+    </dependency>
+    <!--stream rabbit -->
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-stream-rabbit</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <optional>true</optional>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+```
+
+配置
+
+```yaml
+server:
+  port: 8801
+
+spring:
+  application:
+    name: cloud-stream-provider
+  cloud:
+    stream:
+      binders: #在此处配置要绑定的rabbitmq的服务信息
+        defaultRabbit: #表示定义的名称，用于binding整合
+          type: rabbit #消息组件类型
+          environment: #设置rabbitmq的相关环境配置
+            spring:
+              rabbitmq:
+                host: 47.96.27.160
+                port: 5672
+                username: guest
+                password: guest
+      bindings: #服务的整合处理
+        output: #这个名字是一个通道的名称
+          destination: studyExchange #表示要使用的Exchange名称定义
+          content-type: application/json #设置消息类型，本次为json，本文要设置为“text/plain”
+          binder: defaultRabbit #设置要绑定的消息服务的具体设置
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:7001/eureka
+  instance:
+    lease-renewal-interval-in-seconds: 2 #设置心跳的时间间隔（默认是30S)
+    lease-expiration-duration-in-seconds: 5 #如果超过5S间隔就注销节点 默认是90s
+    instance-id: send-8801.com #在信息列表时显示主机名称
+    prefer-ip-address: true #访问的路径变为IP地址
+```
+
+服务层：
+
+```java
+public interface IMessageProvider {
+    public String send();
+}
+```
+
+```java
+@EnableBinding(Source.class)
+@Slf4j
+public class MessageProviderImpl implements IMessageProvider {
+    @Resource
+    private MessageChannel output;
+    @Override
+    public String send() {
+        String serial = UUID.randomUUID().toString();
+        output.send(MessageBuilder.withPayload(serial).build());//发送消息
+        log.info("****serial:" + serial);
+        return serial;
+    }
+}
+```
+
+业务层
+
+```java
+@RestController
+public class SendMessageController {
+    @Resource
+    private IMessageProvider messageProvider;
+
+    @GetMapping(value = "/send")
+    public String send(){
+        return messageProvider.send();
+    }
+}
+```
+
+## 消费者
+
+依赖
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <!--监控-->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <!--eureka client-->
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+    </dependency>
+    <!--stream rabbit -->
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-stream-rabbit</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <optional>true</optional>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+    </dependency>
+```
+
+配置
+
+```yaml
+server:
+  port: 8802
+
+spring:
+  application:
+    name: cloud-stream-provider
+  cloud:
+    stream:
+      binders: #在此处配置要绑定的rabbitmq的服务信息
+        defaultRabbit: #表示定义的名称，用于binding整合
+          type: rabbit #消息组件类型
+          environment: #设置rabbitmq的相关环境配置
+            spring:
+              rabbitmq:
+                host: 47.96.27.160
+                port: 5672
+                username: guest
+                password: guest
+      bindings: #服务的整合处理
+        input: #这个名字是一个通道的名称
+          destination: studyExchange #表示要使用的Exchange名称定义
+          content-type: application/json #设置消息类型，本次为json，本文要设置为“text/plain”
+          binder: defaultRabbit #设置要绑定的消息服务的具体设置
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:7001/eureka
+  instance:
+    lease-renewal-interval-in-seconds: 2 #设置心跳的时间间隔（默认是30S)
+    lease-expiration-duration-in-seconds: 5 #如果超过5S间隔就注销节点 默认是90s
+    instance-id: receive-8802.com #在信息列表时显示主机名称
+    prefer-ip-address: true #访问的路径变为IP地址
+```
+
+业务类
+
+```java
+@Component
+@EnableBinding(Sink.class)
+public class MessageListenerController {
+    @Value("${server.port}")
+    private  String serverPort;
+
+    @StreamListener(Sink.INPUT)
+    public void input(Message<String> message) {
+        System.out.println("消费者1号， -----> 接受到的消息： " + message.getPayload()
+                + "\t port: " + serverPort);
+    }
+}
+```
